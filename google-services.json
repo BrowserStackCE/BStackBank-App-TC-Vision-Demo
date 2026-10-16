@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "287818878911",
+    "project_id": "yash-demo-banking-app",
+    "storage_bucket": "yash-demo-banking-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:287818878911:android:8ada2993a02be5ca491b0a",
+        "android_client_info": {
+          "package_name": "com.yash.bankingapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBD9lJGBpfDtxQtkxPPOG1of3Uw8MmMt8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
