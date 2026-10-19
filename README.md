@@ -48,3 +48,4 @@ plugins/        Expo config plugins
 
 - Shop product images are remote stock photos listed in `constants/products.ts`.
 - Card shades live in `constants/theme.ts` (`CARD_THEMES`).
+
