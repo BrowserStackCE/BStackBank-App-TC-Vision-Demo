@@ -1,0 +1,392 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-07T05:31:31.795Z",
+  "fields": [
+    {
+      "id": "language.package_manager",
+      "category": "language",
+      "label": "language.package_manager",
+      "value": "npm",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "language.primary",
+      "category": "language",
+      "label": "language.primary",
+      "value": "TypeScript",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "language.secondary",
+      "category": "language",
+      "label": "language.secondary",
+      "value": "JavaScript",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "framework.mobile",
+      "category": "framework",
+      "label": "framework.mobile",
+      "value": "Expo 54 with expo-router (file-based routing), React Native 0.81.5",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "framework.backend",
+      "category": "framework",
+      "label": "framework.backend",
+      "value": "Express.js 4 with Neon serverless PostgreSQL (@neondatabase/serverless)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "reporter.detected",
+      "category": "reporter",
+      "label": "reporter.detected",
+      "value": "not_detected",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "how_to_run.mobile_start",
+      "category": "how_to_run",
+      "label": "how_to_run.mobile_start",
+      "value": "npm start (runs expo start)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "how_to_run.mobile_android",
+      "category": "how_to_run",
+      "label": "how_to_run.mobile_android",
+      "value": "npm run android",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "how_to_run.mobile_ios",
+      "category": "how_to_run",
+      "label": "how_to_run.mobile_ios",
+      "value": "npm run ios",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "how_to_run.server_start",
+      "category": "how_to_run",
+      "label": "how_to_run.server_start",
+      "value": "cd server && npm start (node index.js)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "how_to_run.server_dev",
+      "category": "how_to_run",
+      "label": "how_to_run.server_dev",
+      "value": "cd server && npm run dev (nodemon index.js)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "how_to_run.lint",
+      "category": "how_to_run",
+      "label": "how_to_run.lint",
+      "value": "npm run lint (expo lint)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "browserstack.integration_detected",
+      "category": "browserstack",
+      "label": "browserstack.integration_detected",
+      "value": "true — bundle ID com.browserstackbank.app (iOS + Android), EAS build configured for preview (APK) and production. No BrowserStack Automate/App Automate SDK or browserstack.yml detected.",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "browserstack.backend_url",
+      "category": "browserstack",
+      "label": "browserstack.backend_url",
+      "value": "https://bs-banking-app.onrender.com",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "ci.detected",
+      "category": "ci",
+      "label": "ci.detected",
+      "value": "not_detected",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "conventions.routing",
+      "category": "conventions",
+      "label": "conventions.routing",
+      "value": "Expo Router file-based routing — app/ directory with route groups: (banking) for authenticated user screens, (admin) for admin screens, (tabs) for tab navigation",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "conventions.state_management",
+      "category": "conventions",
+      "label": "conventions.state_management",
+      "value": "Module-level singleton stores (AuthStore in store/auth.ts, api in store/api.ts, banking store in store/banking.ts) — no Redux/Zustand",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "conventions.api_client",
+      "category": "conventions",
+      "label": "conventions.api_client",
+      "value": "Centralized api object in store/api.ts; all calls go through request() helper with Bearer token auth header",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "conventions.token_storage",
+      "category": "conventions",
+      "label": "conventions.token_storage",
+      "value": "JWT stored in AsyncStorage under key auth_token; in-memory cache (_memToken) for sync access",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "conventions.styling",
+      "category": "conventions",
+      "label": "conventions.styling",
+      "value": "StyleSheet.create() per file; theme constants in constants/theme.ts (BSColors palette)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "conventions.test_ids",
+      "category": "conventions",
+      "label": "conventions.test_ids",
+      "value": "testID props used on key UI elements for automation (e.g. testID=email-input, testID=bs-logo, testID=password-input)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "auth_pattern.type",
+      "category": "auth_pattern",
+      "label": "auth_pattern.type",
+      "value": "JWT + OTP two-factor authentication",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "auth_pattern.demo_credentials_pattern",
+      "category": "auth_pattern",
+      "label": "auth_pattern.demo_credentials_pattern",
+      "value": "Demo autofill buttons exist on login screen (app/index.tsx) for regular user and wrong-password scenarios. OTP screen shows server OTP as a hint in demo mode; static fallback OTP also available. See app/index.tsx autoFillRegular() for credential pattern.",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "auth_pattern.admin_role",
+      "category": "auth_pattern",
+      "label": "auth_pattern.admin_role",
+      "value": "Same login flow as regular user; role field in JWT payload determines routing to admin screens under app/(admin)/",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "repo_intent.summary",
+      "category": "repo_intent",
+      "label": "repo_intent.summary",
+      "value": "Demo mobile banking app (BrowserStack Bank) — Expo/React Native frontend + Express.js backend. Features: login, OTP 2FA, biometric auth, liveness/KYC, Stripe payments, transfers, cards, transactions, shop, admin controls. Built as a BrowserStack demo app for mobile testing.",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "monorepo.layout",
+      "category": "monorepo",
+      "label": "monorepo.layout",
+      "value": "Two components: (1) mobile-app at repo root — Expo 54, React Native 0.81.5, TypeScript, expo-router; (2) server at server/ — Express.js 4, JavaScript, Neon serverless PostgreSQL",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "structure.test_framework",
+      "category": "structure",
+      "label": "structure.test_framework",
+      "value": "not_detected",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "structure.test_files",
+      "category": "structure",
+      "label": "structure.test_files",
+      "value": "not_detected",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "how_to_run.tests",
+      "category": "how_to_run",
+      "label": "how_to_run.tests",
+      "value": "not_detected",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "env.server",
+      "category": "env",
+      "label": "env.server",
+      "value": "DATABASE_URL, JWT_SECRET, JWT_EXPIRES_IN (optional, default 7d), STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, PORT (optional, default 3000). Loaded from .env at repo root via dotenv (path '../.env' from server/).",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "env.mobile",
+      "category": "env",
+      "label": "env.mobile",
+      "value": "EXPO_PUBLIC_STRIPE_PK (Stripe publishable key, set per EAS build profile in eas.json)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "quality_gate.lint",
+      "category": "quality_gate",
+      "label": "quality_gate.lint",
+      "value": "expo lint using eslint-config-expo/flat (eslint.config.js)",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "quality_gate.typescript",
+      "category": "quality_gate",
+      "label": "quality_gate.typescript",
+      "value": "strict mode; tsconfig.json extends expo/tsconfig.base; path alias @/* maps to repo root",
+      "source": "llm",
+      "confidence": "medium"
+    },
+    {
+      "id": "auth_pattern.login_flow",
+      "category": "auth_pattern",
+      "label": "auth_pattern.login_flow",
+      "value": "POST /auth/login → JWT token → stored in AsyncStorage (key: auth_token) + in-memory. Redirect to /otp → POST /auth/send-otp → 6-digit OTP (shown as hint in demo). POST /auth/verify-otp → routes to /(banking)/home. Signup: POST /auth/signup → OTP → /liveness for KYC. API uses Authorization Bearer header. Server validates via authMiddleware (jsonwebtoken).",
+      "source": "llm",
+      "confidence": "medium"
+    }
+  ],
+  "signalHashes": {
+    "language": "cbe25ba6dcc9a08a",
+    "framework": "c1925852b1b51b80",
+    "structure": "edfcac66cc907779",
+    "monorepo": "7990339c74e17cf1",
+    "browserstack": "bda730afee7810ad",
+    "how_to_run": "4015a268956efb2f",
+    "reporter": "fa2c1f092010ef6e",
+    "env": "d96df86e177f208b",
+    "quality_gate": "cabd1fff687cd97c",
+    "ci": "91933fcc1092e491"
+  },
+  "confirmed": false,
+  "verifiedAt": "2026-07-07T05:31:31.796Z",
+  "renderedHash": "c2ad7277ffa55aea41003161d7fe389fa2c659bf5f62ced0d709fa703ae1e02d",
+  "environment": {
+    "osPlatform": {
+      "value": "darwin 24.5.0",
+      "probedAt": 1786710513509,
+      "ttlMs": 604800000
+    },
+    "shell": {
+      "value": {
+        "path": "/bin/zsh",
+        "kind": "zsh"
+      },
+      "probedAt": 1786970083130,
+      "ttlMs": 86400000
+    },
+    "networkPreflight": {
+      "value": {
+        "vpn": {
+          "detected": true,
+          "confidence": "medium",
+          "defaultRouteInterface": "en0",
+          "reasons": [
+            "rfc1918-dns-without-tunnel-default-route"
+          ],
+          "defaultRouteIsTunnel": false,
+          "dnsAllRfc1918": true,
+          "tunnelInterfacesWithPrivateIp": []
+        },
+        "proxy": {
+          "detected": false
+        },
+        "npm": {
+          "registry": "unknown",
+          "isPrivate": false,
+          "projectNpmrcPresent": false,
+          "globalNpmrcPresent": false
+        },
+        "reachability": {
+          "api": {
+            "reachable": true,
+            "issuer": "C=US; O=Amazon; CN=Amazon RSA 2048 M01"
+          },
+          "hub": {
+            "reachable": true,
+            "issuer": "C=US; ST=Arizona; L=Scottsdale; O=GoDaddy.com, Inc.; OU=http://certs.godaddy.com/repository/; CN=Go Daddy Secure Certificate Authority - G2"
+          },
+          "proxyAuthRequired": false
+        },
+        "durationMs": 3030
+      },
+      "probedAt": 1786970086160,
+      "ttlMs": 21600000
+    },
+    "toolchain": {
+      "value": [
+        {
+          "runtime": "node",
+          "satisfies": "unknown"
+        }
+      ],
+      "probedAt": 1786970088671,
+      "ttlMs": 86400000
+    },
+    "deps": {
+      "value": {
+        "manager": "npm",
+        "installed": true,
+        "lockfileSynced": true
+      },
+      "probedAt": 1786979089843,
+      "ttlMs": 1800000
+    },
+    "gitSafety": {
+      "value": {
+        "isRepo": true,
+        "branch": "main",
+        "dirty": true,
+        "hookManagers": [],
+        "envGitignored": true
+      },
+      "probedAt": 1786976720643,
+      "ttlMs": 300000
+    },
+    "browserLock": {
+      "value": {
+        "profileDir": "/Users/yashchavan/Library/Application Support/Code/User/globalStorage/browserstackcom.test-companion/browser-profile",
+        "locked": false
+      },
+      "probedAt": 1786976720643,
+      "ttlMs": 600000
+    },
+    "browserStackLocal": {
+      "value": {
+        "binaryInstalled": true,
+        "running": false
+      },
+      "probedAt": 1786976720687,
+      "ttlMs": 600000
+    }
+  }
+}
