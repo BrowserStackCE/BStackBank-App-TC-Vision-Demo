@@ -1,13 +1,36 @@
 #!/usr/bin/env node
-// Uploads a file to a Google Drive folder using a service account.
+// Uploads a file to a Google Drive (Shared Drive) folder using a service account.
 // Usage: node scripts/upload-to-drive.js <file> [remoteName]
-// Env:   GDRIVE_SERVICE_ACCOUNT_JSON (raw JSON), GDRIVE_FOLDER_ID
+// Env:   GDRIVE_SERVICE_ACCOUNT_JSON (raw JSON, optionally quoted or base64), GDRIVE_FOLDER_ID
 // No dependencies: uses Node 18+ fetch and crypto.
 const fs = require('fs');
 const crypto = require('crypto');
 
 const b64url = (b) =>
   Buffer.from(b).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+// Accepts raw JSON, JSON wrapped in single/double quotes, or base64 of the JSON.
+function parseServiceAccount(input) {
+  let s = String(input || '').trim();
+  const attempts = [];
+  attempts.push(s);
+  if (/^(['"]).*\1$/s.test(s)) attempts.push(s.slice(1, -1).trim());
+  try {
+    attempts.push(Buffer.from(s, 'base64').toString('utf8').trim());
+  } catch (_) {}
+  for (const a of attempts) {
+    if (!a.startsWith('{')) continue;
+    try {
+      const sa = JSON.parse(a);
+      if (sa.client_email && sa.private_key) return sa;
+    } catch (_) {}
+  }
+  throw new Error(
+    `GDRIVE_SERVICE_ACCOUNT_JSON could not be parsed (length ${s.length}, first char code ${
+      s ? s.charCodeAt(0) : 'none'
+    }). Paste the full service-account JSON file content as the secret, without extra quotes.`
+  );
+}
 
 async function getToken(sa) {
   const now = Math.floor(Date.now() / 1000);
@@ -37,12 +60,10 @@ async function getToken(sa) {
 async function main() {
   const [file, remoteName] = process.argv.slice(2);
   if (!file || !fs.existsSync(file)) throw new Error(`File not found: ${file}`);
-  const folderId = (process.env.GDRIVE_FOLDER_ID || '').trim();
+  const folderId = (process.env.GDRIVE_FOLDER_ID || '').trim().replace(/^['"]|['"]$/g, '');
   if (!folderId) throw new Error('GDRIVE_FOLDER_ID is not set');
-  let raw = (process.env.GDRIVE_SERVICE_ACCOUNT_JSON || '').trim();
-  if (!raw) throw new Error('GDRIVE_SERVICE_ACCOUNT_JSON is not set');
-  if (!raw.startsWith('{')) raw = Buffer.from(raw, 'base64').toString('utf8'); // allow base64 too
-  const sa = JSON.parse(raw);
+  if (!process.env.GDRIVE_SERVICE_ACCOUNT_JSON) throw new Error('GDRIVE_SERVICE_ACCOUNT_JSON is not set');
+  const sa = parseServiceAccount(process.env.GDRIVE_SERVICE_ACCOUNT_JSON);
 
   const token = await getToken(sa);
   const name = remoteName || file.split('/').pop();
