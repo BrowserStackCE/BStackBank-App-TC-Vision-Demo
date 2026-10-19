@@ -1,0 +1,91 @@
+name: Build release APK
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Only when: PR was MERGED, from branch pr/workflow, and title starts with "feat(dev): "
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'pr/workflow' &&
+      startsWith(github.event.pull_request.title, 'feat(dev): ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      # Ubuntu runners already include the Android SDK; pin JDK 17 (cached, fast).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Bump app version to 2.0.1
+        run: |
+          node -e "
+          const fs=require('fs');
+          const j=JSON.parse(fs.readFileSync('app.json','utf8'));
+          j.expo.version='2.0.1';
+          fs.writeFileSync('app.json',JSON.stringify(j,null,2)+'\n');
+          console.log('version ->', j.expo.version);"
+
+      - name: Create .env from secrets
+        env:
+          EXPO_PUBLIC_STRIPE_PK: ${{ secrets.EXPO_PUBLIC_STRIPE_PK }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME: ${{ secrets.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME }}
+          EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET: ${{ secrets.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET }}
+        run: |
+          {
+            echo "EXPO_PUBLIC_STRIPE_PK=$EXPO_PUBLIC_STRIPE_PK"
+            echo "EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL"
+            echo "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=$EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME"
+            echo "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=$EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET"
+          } > .env
+
+      # /android is git-ignored (generated), so regenerate it.
+      - name: Expo prebuild (android)
+        run: npx expo prebuild --platform android --no-install
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release APK
+        working-directory: android
+        run: set -a && source ../.env && set +a && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+
+      - name: Rename APK
+        id: apk
+        run: |
+          SRC=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          NAME="BStackBank-2.0.1-${{ github.event.pull_request.number }}-$(date +%Y%m%d-%H%M).apk"
+          cp "$SRC" "$NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK to Google Drive
+        env:
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: node scripts/upload-to-drive.js "${{ steps.apk.outputs.name }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.name }}
+          retention-days: 7
