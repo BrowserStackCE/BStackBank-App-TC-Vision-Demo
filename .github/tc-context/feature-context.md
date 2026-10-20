@@ -30,3 +30,5 @@ fetched live from the device's public IP address.
 - One user-visible behaviour per test case
 - Numbered steps, each with one clear expected result
 - Include happy path and key negative cases (for example no network, refresh, back navigation)
+
+--
