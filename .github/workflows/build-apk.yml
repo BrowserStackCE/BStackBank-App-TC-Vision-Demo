@@ -11,6 +11,10 @@ concurrency:
 
 jobs:
   build:
+    outputs:
+      bs_url: ${{ steps.appautomate.outputs.bs_url }}
+      custom_id: ${{ steps.appautomate.outputs.custom_id }}
+      apk_name: ${{ steps.apk.outputs.name }}
     # Only when: PR was MERGED, from branch pr/workflow, and title starts with "feat(dev): "
     if: >-
       github.event.pull_request.merged == true &&
@@ -78,11 +82,45 @@ jobs:
           cp "$SRC" "$NAME"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
+      # Stable custom id: re-uploads keep the same name, so later flows can always find the latest build.
+      - name: Upload APK to BrowserStack App Automate
+        id: appautomate
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: node scripts/upload-to-appautomate.js "${{ steps.apk.outputs.name }}" "BStackBankLatest"
+
       - name: Upload APK to Google Drive
         env:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: node scripts/upload-to-drive.js "${{ steps.apk.outputs.name }}"
+
+      # Handoff for the exploration flow: BS app id + feature context from the repo.
+      - name: Write handoff file
+        env:
+          BS_URL: ${{ steps.appautomate.outputs.bs_url }}
+          CUSTOM_ID: ${{ steps.appautomate.outputs.custom_id }}
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          mkdir -p handoff
+          cp .github/tc-context/feature-context.md handoff/feature-context.md
+          node -e '
+          const fs=require("fs"), e=process.env;
+          fs.writeFileSync("handoff/handoff.json", JSON.stringify({
+            bs_url:e.BS_URL, custom_id:e.CUSTOM_ID, apk_name:e.APK_NAME,
+            pr_number:e.PR_NUMBER, pr_title:e.PR_TITLE, sha:e.MERGE_SHA
+          },null,2)+"\n");'
+          cat handoff/handoff.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tc-handoff
+          path: handoff/
+          retention-days: 7
 
       - uses: actions/upload-artifact@v4
         with:
