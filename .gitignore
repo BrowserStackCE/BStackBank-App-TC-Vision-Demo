@@ -53,3 +53,5 @@ yash-demo-banking-app-firebase-adminsdk-fbsvc-a1594354a1.json
 # Firebase / Google config (contains API keys — inject at build time via EAS Secrets)
 # google-services.json
 GoogleService-Info.plist
+
+plan.md
