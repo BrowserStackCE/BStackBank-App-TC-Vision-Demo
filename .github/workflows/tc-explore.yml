@@ -1,0 +1,111 @@
+name: TC explore and generate test cases
+
+# Runs after "Build release APK" completes successfully.
+# Reads the tc-handoff artifact (bs:// app id + feature context), explores the app on a real
+# Android device with Test Companion, and saves the generated cases to Test Management.
+on:
+  workflow_run:
+    workflows: ["Build release APK"]
+    types: [completed]
+
+concurrency:
+  group: tc-explore
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read   # needed to download the artifact from the build run
+
+env:
+  TC_PIN_VERSION: "1.1.7"
+  # sha256 of the linux-amd64 release tarball for 1.1.7 (from /cli/latest)
+  TC_SHA256: "a54e7d0f5cf00b589f28767b1b0b026c2edd600bf8dc4398afcd77c253475b8f"
+  TM_PROJECT: "PR-79"                     # Test-Companion-Demo-Vision
+  TM_FOLDER_NAME: "Functional"
+  TM_FOLDER_ID: "60003370"
+
+jobs:
+  explore:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Download handoff from the build run
+        uses: actions/download-artifact@v4
+        with:
+          name: tc-handoff
+          path: handoff
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read handoff
+        id: handoff
+        run: |
+          set -euo pipefail
+          test -s handoff/handoff.json || { echo "handoff.json missing"; exit 1; }
+          test -s handoff/feature-context.md || { echo "feature-context.md missing"; exit 1; }
+          BS_URL=$(node -p "require('./handoff/handoff.json').bs_url")
+          PR_NUMBER=$(node -p "require('./handoff/handoff.json').pr_number")
+          case "$BS_URL" in bs://*) ;; *) echo "invalid bs_url in handoff"; exit 1;; esac
+          echo "bs_url=$BS_URL" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "App: $BS_URL (PR #$PR_NUMBER)"
+
+      - name: Install tc (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/tc-install.sh https://test-companion.browserstack.com/cli/install.sh
+          TC_VERSION="$TC_PIN_VERSION" sh /tmp/tc-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Sign in
+        timeout-minutes: 2
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          tc auth login
+          tc tm use browserstack
+
+      - name: Explore app and generate test cases
+        env:
+          BS_URL: ${{ steps.handoff.outputs.bs_url }}
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          set -o pipefail
+          CTX="$(cat handoff/feature-context.md)"
+          INSTRUCTIONS="Save every generated test case to Test Management project ${TM_PROJECT} (Test-Companion-Demo-Vision), inside the existing folder ${TM_FOLDER_NAME} (folder id ${TM_FOLDER_ID}). Do not create a new project and do not use the Automation folders.
+          Write manual, step-based test cases only (a title, preconditions, numbered steps, and one clear expected result per step). Do not generate automation scripts or file names.
+          Explore the feature below on the device, then derive the cases from what you actually observed.
+
+          ${CTX}"
+          tc app generate --app "$BS_URL" --platform android --auto-grant-permissions \
+            --save-to-tm --yolo --json "$INSTRUCTIONS" 2>&1 | tee tc-run.log
+
+      - name: Write run summary
+        if: always()
+        env:
+          BS_URL: ${{ steps.handoff.outputs.bs_url }}
+          PR_NUMBER: ${{ steps.handoff.outputs.pr_number }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## Test Companion exploration"
+            echo "- Result: ${JOB_STATUS}"
+            echo "- App: ${BS_URL}"
+            echo "- PR: #${PR_NUMBER}"
+            echo "- Test Management: project ${TM_PROJECT}, folder ${TM_FOLDER_NAME} (${TM_FOLDER_ID})"
+          } > tc-summary.md
+          cat tc-summary.md >> "$GITHUB_STEP_SUMMARY"
+          tc tm cases -p "$TM_PROJECT" -f "$TM_FOLDER_ID" 2>&1 | head -40 >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tc-explore-logs
+          path: |
+            tc-run.log
+            tc-summary.md
+          if-no-files-found: ignore
+          retention-days: 7
