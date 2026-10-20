@@ -1,12 +1,30 @@
 name: TC explore and generate test cases
 
-# Runs after "Build release APK" completes successfully.
+# Runs after "Build release APK" completes successfully, or manually (workflow_dispatch).
 # Reads the tc-handoff artifact (bs:// app id + feature context), explores the app on a real
 # Android device with Test Companion, and saves the generated cases to Test Management.
 on:
   workflow_run:
     workflows: ["Build release APK"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to explore: bs://<id> or a custom id such as BStackBankLatest (default)"
+        required: false
+        default: "BStackBankLatest"
+      device:
+        description: "Device name (leave empty to let Test Companion choose)"
+        required: false
+        default: ""
+      os_version:
+        description: "OS version (only used together with a device)"
+        required: false
+        default: ""
+      instructions:
+        description: "Extra instructions appended to the feature context (optional)"
+        required: false
+        default: ""
 
 concurrency:
   group: tc-explore
@@ -23,14 +41,18 @@ env:
   TM_PROJECT: "PR-79"                     # Test-Companion-Demo-Vision
   TM_FOLDER_NAME: "Functional"
   TM_FOLDER_ID: "60003370"
+  DEVICE: ${{ github.event.inputs.device }}
+  OS_VERSION: ${{ github.event.inputs.os_version }}
 
 jobs:
   explore:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
+      # --- Automatic path: take the app id and context from the build run ---
       - name: Download handoff from the build run
+        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
         with:
           name: tc-handoff
@@ -38,18 +60,38 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # --- Manual path: use the repo's current feature context and the chosen app ---
+      - name: Checkout (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+
       - name: Read handoff
         id: handoff
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_APP: ${{ github.event.inputs.app }}
+          EXTRA: ${{ github.event.inputs.instructions }}
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
         run: |
           set -euo pipefail
-          test -s handoff/handoff.json || { echo "handoff.json missing"; exit 1; }
+          mkdir -p handoff
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            cp .github/tc-context/feature-context.md handoff/feature-context.md
+            APP="${INPUT_APP:-BStackBankLatest}"
+            BS_URL="$(node scripts/resolve-bs-app.js "$APP")"
+            PR_NUMBER="manual"
+            if [ -n "$EXTRA" ]; then printf '\n\n## Extra instructions\n%s\n' "$EXTRA" >> handoff/feature-context.md; fi
+          else
+            test -s handoff/handoff.json || { echo "handoff.json missing"; exit 1; }
+            BS_URL=$(node -p "require('./handoff/handoff.json').bs_url")
+            PR_NUMBER=$(node -p "require('./handoff/handoff.json').pr_number")
+          fi
           test -s handoff/feature-context.md || { echo "feature-context.md missing"; exit 1; }
-          BS_URL=$(node -p "require('./handoff/handoff.json').bs_url")
-          PR_NUMBER=$(node -p "require('./handoff/handoff.json').pr_number")
-          case "$BS_URL" in bs://*) ;; *) echo "invalid bs_url in handoff"; exit 1;; esac
+          case "$BS_URL" in bs://*) ;; *) echo "invalid app id: $BS_URL"; exit 1;; esac
           echo "bs_url=$BS_URL" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "App: $BS_URL (PR #$PR_NUMBER)"
+          echo "App: $BS_URL (PR $PR_NUMBER), device: ${DEVICE:-auto} ${OS_VERSION}"
 
       - name: Install tc (pinned)
         run: |
@@ -73,15 +115,36 @@ jobs:
           BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
           BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
         run: |
-          set -o pipefail
+          set -uo pipefail
           CTX="$(cat handoff/feature-context.md)"
           INSTRUCTIONS="Save every generated test case to Test Management project ${TM_PROJECT} (Test-Companion-Demo-Vision), inside the existing folder ${TM_FOLDER_NAME} (folder id ${TM_FOLDER_ID}). Do not create a new project and do not use the Automation folders.
           Write manual, step-based test cases only (a title, preconditions, numbered steps, and one clear expected result per step). Do not generate automation scripts or file names.
-          Explore the feature below on the device, then derive the cases from what you actually observed.
+          You MUST explore the feature on the real device and base every test case on what you actually observed. If the device session cannot be started or is lost, STOP and report failure. Never write test cases from the description alone and never save unverified cases.
 
           ${CTX}"
-          tc app generate --app "$BS_URL" --platform android --auto-grant-permissions \
-            --save-to-tm --yolo --json "$INSTRUCTIONS" 2>&1 | tee tc-run.log
+
+          DEVICE_ARGS=()
+          if [ -n "${DEVICE:-}" ]; then DEVICE_ARGS+=(--device "$DEVICE"); fi
+          if [ -n "${DEVICE:-}" ] && [ -n "${OS_VERSION:-}" ]; then DEVICE_ARGS+=(--os-version "$OS_VERSION"); fi
+
+          # Start from a clean pending queue so nothing unverified can be approved by accident.
+          tc tm review --reject --all || true
+
+          # Retry only when the device session itself failed.
+          for attempt in 1 2 3; do
+            echo "=== Attempt $attempt (device: ${DEVICE:-auto}) ==="
+            tc app generate --app "$BS_URL" --platform android ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} \
+              --auto-grant-permissions --save-to-tm --yolo --json "$INSTRUCTIONS" 2>&1 | tee "tc-run-$attempt.log"
+            code=${PIPESTATUS[0]}
+            if grep -qE 'Session liveness check failed|session crashed/terminated|No active Appium session|task_blocked|could not be started|no longer available on BrowserStack|not one of the devices provided' "tc-run-$attempt.log"; then
+              echo "Device session failed on attempt $attempt (exit $code). Discarding anything created without a device."
+              tc tm review --reject --all || true
+              continue
+            fi
+            exit "$code"
+          done
+          echo "Exploration did not complete after 3 attempts. Nothing was verified or saved."
+          exit 7
 
       - name: Write run summary
         if: always()
@@ -94,7 +157,8 @@ jobs:
             echo "## Test Companion exploration"
             echo "- Result: ${JOB_STATUS}"
             echo "- App: ${BS_URL}"
-            echo "- PR: #${PR_NUMBER}"
+            echo "- PR: ${PR_NUMBER}"
+            echo "- Device: ${DEVICE:-auto} ${OS_VERSION}"
             echo "- Test Management: project ${TM_PROJECT}, folder ${TM_FOLDER_NAME} (${TM_FOLDER_ID})"
           } > tc-summary.md
           cat tc-summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -105,7 +169,7 @@ jobs:
         with:
           name: tc-explore-logs
           path: |
-            tc-run.log
+            tc-run-*.log
             tc-summary.md
           if-no-files-found: ignore
           retention-days: 7
