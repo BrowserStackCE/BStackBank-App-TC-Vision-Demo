@@ -1,4 +1,4 @@
-name: TC explore and generate test cases
+name: tc-workflow
 
 # Runs after "Build release APK" completes successfully, or manually (workflow_dispatch).
 # Reads the tc-handoff artifact (bs:// app id + feature context), explores the app on a real
@@ -14,9 +14,9 @@ on:
         required: false
         default: "BStackBankLatest"
       device:
-        description: "Device name (leave empty to let Test Companion choose)"
+        description: "Device name (default Google Pixel 9; OS version is chosen by Test Companion)"
         required: false
-        default: ""
+        default: "Google Pixel 9"
       os_version:
         description: "OS version (only used together with a device)"
         required: false
@@ -27,7 +27,7 @@ on:
         default: ""
 
 concurrency:
-  group: tc-explore
+  group: tc-workflow
   cancel-in-progress: false
 
 permissions:
@@ -41,7 +41,8 @@ env:
   TM_PROJECT: "PR-172074"                     # Test-Companion-Demo-Vision
   TM_FOLDER_NAME: "Functional"
   TM_FOLDER_ID: "60058724"
-  DEVICE: ${{ github.event.inputs.device }}
+  # workflow_run (auto) has no inputs, so fall back to Google Pixel 9. OS version stays empty.
+  DEVICE: ${{ github.event.inputs.device || 'Google Pixel 9' }}
   OS_VERSION: ${{ github.event.inputs.os_version }}
 
 jobs:
@@ -137,7 +138,7 @@ jobs:
               --auto-grant-permissions --save-to-tm --yolo --json "$INSTRUCTIONS" 2>&1 | tee "tc-run-$attempt.log"
             code=${PIPESTATUS[0]}
             if grep -qE 'Session liveness check failed|session crashed/terminated|No active Appium session|task_blocked|could not be started|no longer available on BrowserStack|not one of the devices provided' "tc-run-$attempt.log"; then
-              echo "Device session failed on attempt $attempt (exit $code). Discarding anything created without a device."
+              echo "Device session failed on attempt $attempt (exit $code): the session died at start. Likely causes: device unavailable, app crashing on launch, or no free parallels. Check the session in the App Automate dashboard."
               tc tm review --reject --all || true
               continue
             fi
@@ -167,7 +168,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tc-explore-logs
+          name: tc-workflow-logs
           path: |
             tc-run-*.log
             tc-summary.md
