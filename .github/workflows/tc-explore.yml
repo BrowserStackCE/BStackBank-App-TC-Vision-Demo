@@ -38,9 +38,9 @@ env:
   TC_PIN_VERSION: "1.1.7"
   # sha256 of the linux-amd64 release tarball for 1.1.7 (from /cli/latest)
   TC_SHA256: "a54e7d0f5cf00b589f28767b1b0b026c2edd600bf8dc4398afcd77c253475b8f"
-  TM_PROJECT: "PR-79"                     # Test-Companion-Demo-Vision
+  TM_PROJECT: "PR-172074"                     # Test-Companion-Demo-Vision
   TM_FOLDER_NAME: "Functional"
-  TM_FOLDER_ID: "60003370"
+  TM_FOLDER_ID: "60058724"
   DEVICE: ${{ github.event.inputs.device }}
   OS_VERSION: ${{ github.event.inputs.os_version }}
 
