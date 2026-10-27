@@ -35,9 +35,10 @@ permissions:
   actions: read   # needed to download the artifact from the build run
 
 env:
-  TC_PIN_VERSION: "1.1.7"
-  # sha256 of the linux-amd64 release tarball for 1.1.7 (from /cli/latest)
-  TC_SHA256: "a54e7d0f5cf00b589f28767b1b0b026c2edd600bf8dc4398afcd77c253475b8f"
+  TC_PIN_VERSION: "1.1.8"
+  # sha256 of the linux-x64 release tarball for 1.1.8 (ubuntu runners)
+  # From 1.1.8, --device and --os-version are accepted but ignored: app runs use Test Companion's device pool.
+  TC_SHA256: "e85882d893ad7d13dfb5ca0cc4906472fa42f862bb113fea61f3ac2e168a3a2e"
   TM_PROJECT: "PR-172074"                     # Test-Companion-Demo-Vision
   TM_FOLDER_NAME: "Functional"
   TM_FOLDER_ID: "60058724"
