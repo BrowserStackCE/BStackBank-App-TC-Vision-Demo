@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       app:
-        description: "App to explore: bs://<id> or a custom id such as BStackBankLatest (default)"
+        description: "App to explore: bs://<id> or a custom id. Leave empty to use the TC_APP_ID secret (falls back to BStackBankLatest)"
         required: false
-        default: "BStackBankLatest"
+        default: ""
       device:
         description: "Device name (default Google Pixel 9; OS version is chosen by Test Companion)"
         required: false
@@ -35,13 +35,13 @@ permissions:
   actions: read   # needed to download the artifact from the build run
 
 env:
-  TC_PIN_VERSION: "1.1.8"
-  # sha256 of the linux-x64 release tarball for 1.1.8 (ubuntu runners)
+  TC_PIN_VERSION: "1.1.9"
+  # sha256 of the linux-x64 release tarball for 1.1.9 (ubuntu runners)
   # From 1.1.8, --device and --os-version are accepted but ignored: app runs use Test Companion's device pool.
-  TC_SHA256: "e85882d893ad7d13dfb5ca0cc4906472fa42f862bb113fea61f3ac2e168a3a2e"
-  TM_PROJECT: "PR-172074"                     # Test-Companion-Demo-Vision
+  TC_SHA256: "09895a6c281c08daf78c0df22f5fdba663875a7a1f522bbb0dff6dcb3fe9c596"
+  TM_PROJECT: "PR-79"                     # Test-Companion-Demo-Vision
   TM_FOLDER_NAME: "Functional"
-  TM_FOLDER_ID: "60058724"
+  TM_FOLDER_ID: "60003370"
   # workflow_run (auto) has no inputs, so fall back to Google Pixel 9. OS version stays empty.
   DEVICE: ${{ github.event.inputs.device || 'Google Pixel 9' }}
   OS_VERSION: ${{ github.event.inputs.os_version }}
@@ -72,6 +72,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           INPUT_APP: ${{ github.event.inputs.app }}
+          DEFAULT_APP: ${{ secrets.TC_APP_ID }}
           EXTRA: ${{ github.event.inputs.instructions }}
           BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
           BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
@@ -80,7 +81,8 @@ jobs:
           mkdir -p handoff
           if [ "$EVENT" = "workflow_dispatch" ]; then
             cp .github/tc-context/feature-context.md handoff/feature-context.md
-            APP="${INPUT_APP:-BStackBankLatest}"
+            # Priority: app input > TC_APP_ID secret (already-uploaded bs:// id) > BStackBankLatest
+            APP="${INPUT_APP:-${DEFAULT_APP:-BStackBankLatest}}"
             BS_URL="$(node scripts/resolve-bs-app.js "$APP")"
             PR_NUMBER="manual"
             if [ -n "$EXTRA" ]; then printf '\n\n## Extra instructions\n%s\n' "$EXTRA" >> handoff/feature-context.md; fi
@@ -129,18 +131,16 @@ jobs:
           if [ -n "${DEVICE:-}" ]; then DEVICE_ARGS+=(--device "$DEVICE"); fi
           if [ -n "${DEVICE:-}" ] && [ -n "${OS_VERSION:-}" ]; then DEVICE_ARGS+=(--os-version "$OS_VERSION"); fi
 
-          # Start from a clean pending queue so nothing unverified can be approved by accident.
-          tc tm review --reject --all || true
 
           # Retry only when the device session itself failed.
           for attempt in 1 2 3; do
             echo "=== Attempt $attempt (device: ${DEVICE:-auto}) ==="
             tc app generate --app "$BS_URL" --platform android ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} \
-              --auto-grant-permissions --save-to-tm --yolo --json "$INSTRUCTIONS" 2>&1 | tee "tc-run-$attempt.log"
+              --auto-grant-permissions --save-to-tm --tm-project "$TM_PROJECT" --tm-folder "$TM_FOLDER_ID" \
+              --yolo --json "$INSTRUCTIONS" 2>&1 | tee "tc-run-$attempt.log"
             code=${PIPESTATUS[0]}
             if grep -qE 'Session liveness check failed|session crashed/terminated|No active Appium session|task_blocked|could not be started|no longer available on BrowserStack|not one of the devices provided' "tc-run-$attempt.log"; then
               echo "Device session failed on attempt $attempt (exit $code): the session died at start. Likely causes: device unavailable, app crashing on launch, or no free parallels. Check the session in the App Automate dashboard."
-              tc tm review --reject --all || true
               continue
             fi
             exit "$code"
@@ -165,6 +165,24 @@ jobs:
           } > tc-summary.md
           cat tc-summary.md >> "$GITHUB_STEP_SUMMARY"
           tc tm cases -p "$TM_PROJECT" -f "$TM_FOLDER_ID" 2>&1 | head -40 >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BS_URL: ${{ steps.handoff.outputs.bs_url }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then echo "SLACK_WEBHOOK_URL not set, skipping"; exit 0; fi
+          FOLDER_URL="https://test-management.browserstack.com/projects/${TM_PROJECT}/folder/${TM_FOLDER_ID}/test-cases"
+          if [ "$JOB_STATUS" = "success" ]; then ICON=":white_check_mark:"; else ICON=":x:"; fi
+          TEXT="${ICON} Test Companion exploration: ${JOB_STATUS}
+          App: ${BS_URL}
+          Test Management: ${TM_PROJECT} / ${TM_FOLDER_NAME} (${TM_FOLDER_ID}) - ${FOLDER_URL}
+          Run: ${RUN_URL}"
+          PAYLOAD="$(node -e 'console.log(JSON.stringify({text: process.argv[1]}))' "$TEXT")"
+          curl -fsS -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
 
       - uses: actions/upload-artifact@v4
         if: always()
