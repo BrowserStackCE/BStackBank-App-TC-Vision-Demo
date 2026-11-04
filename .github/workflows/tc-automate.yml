@@ -168,18 +168,17 @@ jobs:
           git config user.name "tc-automate[bot]"
           git config user.email "tc-automate@users.noreply.github.com"
 
-          # Keep the new files, then move onto the shared branch: reuse it if it exists, else create it.
-          git stash push --include-untracked -m tc-automate
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            git fetch origin "$BRANCH"
-            git checkout -B "$BRANCH" "origin/$BRANCH"
-          else
-            git checkout -b "$BRANCH"
-          fi
-          git stash pop
+          # Run output, not a deliverable. Excluded locally so it is never committed.
+          printf '%s\n' 'log/' >> .git/info/exclude
 
+          # Commit on a local branch first (no stash), then put it on top of the shared branch if it exists.
+          git checkout -B "$BRANCH"
           git add -A
           git commit -m "feat: add Test Companion automation for ${IDS}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH"
+            git rebase -X theirs "origin/$BRANCH" || { git rebase --abort; echo "Could not rebase onto origin/$BRANCH"; exit 1; }
+          fi
           git push origin "$BRANCH"
 
           # Reuse the open PR for this branch if there is one, else open it.
