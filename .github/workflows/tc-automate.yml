@@ -17,7 +17,7 @@ on:
       project:
         description: "Test Management project id"
         required: false
-        default: "PR-80"
+        default: "PR-82"
       folder:
         description: "Test Management folder id"
         required: false
@@ -39,7 +39,7 @@ env:
   TC_SHA256: "09895a6c281c08daf78c0df22f5fdba663875a7a1f522bbb0dff6dcb3fe9c596"
   TEST_REPO: "yashcdev/Test-Companion-Demo-Vision"
   AUTOMATE_BRANCH: "tc/app-automate"
-  TM_PROJECT: ${{ github.event.inputs.project || 'PR-80' }}
+  TM_PROJECT: ${{ github.event.inputs.project || 'PR-82' }}
   TM_FOLDER_ID: ${{ github.event.inputs.folder || '61028035' }}
   NUM_CASES: ${{ github.event.inputs.num_cases || '2' }}
   BASE_BRANCH: ${{ github.event.inputs.base_branch || 'main' }}
