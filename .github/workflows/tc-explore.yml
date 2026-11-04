@@ -1,4 +1,4 @@
-name: tc-workflow
+name: TC Exploration
 
 # Runs after "Build release APK" completes successfully, or manually (workflow_dispatch).
 # Reads the tc-handoff artifact (bs:// app id + feature context), explores the app on a real
@@ -27,7 +27,7 @@ on:
         default: ""
 
 concurrency:
-  group: tc-workflow
+  group: tc-explore
   cancel-in-progress: false
 
 permissions:
@@ -39,9 +39,9 @@ env:
   # sha256 of the linux-x64 release tarball for 1.1.9 (ubuntu runners)
   # From 1.1.8, --device and --os-version are accepted but ignored: app runs use Test Companion's device pool.
   TC_SHA256: "09895a6c281c08daf78c0df22f5fdba663875a7a1f522bbb0dff6dcb3fe9c596"
-  TM_PROJECT: "PR-79"                     # Test-Companion-Demo-Vision
+  TM_PROJECT: "PR-80"                     # Test-Companion-Demo-Vision
   TM_FOLDER_NAME: "Functional"
-  TM_FOLDER_ID: "60003370"
+  TM_FOLDER_ID: "61028035"
   # workflow_run (auto) has no inputs, so fall back to Google Pixel 9. OS version stays empty.
   DEVICE: ${{ github.event.inputs.device || 'Google Pixel 9' }}
   OS_VERSION: ${{ github.event.inputs.os_version }}

@@ -1,0 +1,226 @@
+name: TC Automate Scripts
+
+# Manual only (no chaining) so a step can be inserted between exploration and script generation.
+# Takes the first N not-yet-automated cases from a Test Management folder, writes automation
+# for them with Test Companion inside a checkout of the test-suite repo, and raises a PR there.
+on:
+  workflow_dispatch:
+    inputs:
+      num_cases:
+        description: "How many test cases to automate (first N not-yet-automated cases in the folder)"
+        required: true
+        default: "2"
+      app:
+        description: "App: bs://<id> or a custom id. Leave empty to use the TC_APP_ID secret (falls back to BStackBankLatest)"
+        required: false
+        default: ""
+      project:
+        description: "Test Management project id"
+        required: false
+        default: "PR-80"
+      folder:
+        description: "Test Management folder id"
+        required: false
+        default: "61028035"
+      base_branch:
+        description: "Base branch of the test-suite repo for the PR"
+        required: false
+        default: "main"
+
+concurrency:
+  group: tc-automate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TC_PIN_VERSION: "1.1.9"
+  TC_SHA256: "09895a6c281c08daf78c0df22f5fdba663875a7a1f522bbb0dff6dcb3fe9c596"
+  TEST_REPO: "yashcdev/Test-Companion-Demo-Vision"
+  AUTOMATE_BRANCH: "tc/app-automate"
+  TM_PROJECT: ${{ github.event.inputs.project || 'PR-79' }}
+  TM_FOLDER_ID: ${{ github.event.inputs.folder || '60003370' }}
+  NUM_CASES: ${{ github.event.inputs.num_cases || '2' }}
+  BASE_BRANCH: ${{ github.event.inputs.base_branch || 'main' }}
+
+jobs:
+  automate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # This repo: scripts/resolve-bs-app.js and the feature context used for the grounding exploration.
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      # The test suite. tc writes scripts into the folder it runs in, so all tc steps run here.
+      - name: Checkout test-suite repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TEST_REPO }}
+          token: ${{ secrets.TEST_REPO_TOKEN }}
+          ref: ${{ env.BASE_BRANCH }}
+          path: suite
+
+      - name: Resolve app id
+        id: app
+        env:
+          INPUT_APP: ${{ github.event.inputs.app }}
+          DEFAULT_APP: ${{ secrets.TC_APP_ID }}
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          # Priority: app input > TC_APP_ID secret (already-uploaded bs:// id) > BStackBankLatest
+          APP="${INPUT_APP:-${DEFAULT_APP:-BStackBankLatest}}"
+          BS_URL="$(node ci/scripts/resolve-bs-app.js "$APP")"
+          case "$BS_URL" in bs://*) ;; *) echo "invalid app id: $BS_URL"; exit 1;; esac
+          echo "bs_url=$BS_URL" >> "$GITHUB_OUTPUT"
+          echo "App: $BS_URL"
+
+      - name: Install tc (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/tc-install.sh https://test-companion.browserstack.com/cli/install.sh
+          TC_VERSION="$TC_PIN_VERSION" sh /tmp/tc-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Sign in
+        timeout-minutes: 2
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          tc auth login
+          tc tm use browserstack
+
+      # Short exploration so `tc automate --app` can ground selectors on verified on-device elements.
+      # Nothing is saved to Test Management here (no --save-to-tm).
+      - name: Ground selectors (short exploration, nothing saved)
+        working-directory: suite
+        env:
+          BS_URL: ${{ steps.app.outputs.bs_url }}
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          set -uo pipefail
+          CTX="$(cat ../ci/.github/tc-context/feature-context.md)"
+          INSTRUCTIONS="Explore the app on the real device only to capture verified on-device elements for the screens in the context below. Do not save, create or modify any test case.
+
+          ${CTX}"
+          tc app generate --app "$BS_URL" --platform android --auto-grant-permissions \
+            --yolo --json "$INSTRUCTIONS" 2>&1 | tee ../tc-ground.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::Grounding exploration exited $code; continuing, selectors may be less grounded."
+          fi
+          exit 0
+
+      - name: Pick the first N not-yet-automated cases
+        id: pick
+        working-directory: suite
+        run: |
+          set -euo pipefail
+          tc tm cases -p "$TM_PROJECT" -f "$TM_FOLDER_ID" --json > ../tm-cases.json
+          echo "--- raw listing (first 3000 chars) ---"; head -c 3000 ../tm-cases.json; echo
+          IDS="$(node -e '
+            const fs = require("fs");
+            const n = parseInt(process.env.NUM_CASES, 10);
+            let data = JSON.parse(fs.readFileSync("../tm-cases.json", "utf8"));
+            if (!Array.isArray(data)) data = data.test_cases || data.cases || data.data || [];
+            const idOf = (c) => c.identifier || c.id || c.key || c.case_id;
+            const status = (c) => String(c.automation_status || c.automationStatus || c.automation || "").toLowerCase();
+            const notAutomated = (c) => !/^(automated|completed|done)$/.test(status(c));
+            const ids = data.filter(notAutomated).map(idOf).filter(Boolean).slice(0, n);
+            process.stdout.write(ids.join(" "));
+          ')"
+          if [ -z "$IDS" ]; then echo "No not-yet-automated cases found in $TM_PROJECT / $TM_FOLDER_ID"; exit 1; fi
+          echo "Selected: $IDS"
+          echo "ids=$IDS" >> "$GITHUB_OUTPUT"
+
+      - name: Write automation scripts
+        working-directory: suite
+        env:
+          BS_URL: ${{ steps.app.outputs.bs_url }}
+          IDS: ${{ steps.pick.outputs.ids }}
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          set -uo pipefail
+          # shellcheck disable=SC2086
+          tc automate $IDS --project "$TM_PROJECT" --app "$BS_URL" --platform android \
+            --yolo --json 2>&1 | tee ../tc-automate.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Raise PR in the test-suite repo
+        id: pr
+        working-directory: suite
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
+          IDS: ${{ steps.pick.outputs.ids }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then echo "No new files were written, nothing to commit."; exit 1; fi
+          BRANCH="$AUTOMATE_BRANCH"
+          git config user.name "tc-automate[bot]"
+          git config user.email "tc-automate@users.noreply.github.com"
+
+          # Keep the new files, then move onto the shared branch: reuse it if it exists, else create it.
+          git stash push --include-untracked -m tc-automate
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
+          git stash pop
+
+          git add -A
+          git commit -m "feat: add Test Companion automation for ${IDS}"
+          git push origin "$BRANCH"
+
+          # Reuse the open PR for this branch if there is one, else open it.
+          PR_URL="$(gh pr list --repo "$TEST_REPO" --head "$BRANCH" --base "$BASE_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -n "$PR_URL" ]; then
+            echo "PR already open, new commit added to it: $PR_URL"
+          else
+            PR_URL="$(gh pr create --repo "$TEST_REPO" --base "$BASE_BRANCH" --head "$BRANCH" \
+              --title "Test Companion: automated test scripts" \
+              --body "Automation generated by Test Companion (project ${TM_PROJECT}, folder ${TM_FOLDER_ID}). Latest cases: ${IDS}.
+
+          Workflow run: ${RUN_URL}")"
+            echo "Opened: $PR_URL"
+          fi
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
+          IDS: ${{ steps.pick.outputs.ids }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then echo "SLACK_WEBHOOK_URL not set, skipping"; exit 0; fi
+          if [ "$JOB_STATUS" = "success" ]; then ICON=":white_check_mark:"; else ICON=":x:"; fi
+          TEXT="${ICON} Test Companion script generation: ${JOB_STATUS}
+          Cases: ${IDS:-none selected} (${TM_PROJECT} / ${TM_FOLDER_ID})
+          PR: ${PR_URL:-none}
+          Run: ${RUN_URL}"
+          PAYLOAD="$(node -e 'console.log(JSON.stringify({text: process.argv[1]}))' "$TEXT")"
+          curl -fsS -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tc-automate-logs
+          path: |
+            tc-ground.log
+            tc-automate.log
+            tm-cases.json
+          if-no-files-found: ignore
+          retention-days: 7
