@@ -181,6 +181,10 @@ jobs:
           App: ${BS_URL}
           Test Management: ${TM_PROJECT} / ${TM_FOLDER_NAME} (${TM_FOLDER_ID}) - ${FOLDER_URL}
           Run: ${RUN_URL}"
+          if [ "$JOB_STATUS" = "success" ]; then
+            TEXT="${TEXT}
+          Happy with the cases? Run /automate 2 in Slack (2 = how many cases) to generate the scripts."
+          fi
           PAYLOAD="$(node -e 'console.log(JSON.stringify({text: process.argv[1]}))' "$TEXT")"
           curl -fsS -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
 

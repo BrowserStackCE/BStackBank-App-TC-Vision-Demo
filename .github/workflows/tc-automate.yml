@@ -1,6 +1,7 @@
 name: TC Automate Scripts
 
-# Manual only (no chaining) so a step can be inserted between exploration and script generation.
+# Started on demand: from the Actions tab, or from Slack with the /automate command
+# (Slack -> Cloudflare Worker -> workflow_dispatch; see slack-relay/README.md).
 # Takes the first N not-yet-automated cases from a Test Management folder, writes automation
 # for them with Test Companion inside a checkout of the test-suite repo, and raises a PR there.
 on:
