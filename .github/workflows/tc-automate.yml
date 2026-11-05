@@ -97,70 +97,93 @@ jobs:
           tc auth login
           tc tm use browserstack
 
-      # Short exploration so `tc automate --app` can ground selectors on verified on-device elements.
-      # Nothing is saved to Test Management here (no --save-to-tm).
-      - name: Ground selectors (short exploration, nothing saved)
-        working-directory: suite
-        env:
-          BS_URL: ${{ steps.app.outputs.bs_url }}
-          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
-          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
-        run: |
-          set -uo pipefail
-          CTX="$(cat ../ci/.github/tc-context/feature-context.md)"
-          INSTRUCTIONS="Explore the app on the real device only to capture verified on-device elements for the screens in the context below. Do not save, create or modify any test case.
-
-          ${CTX}"
-          tc app generate --app "$BS_URL" --platform android --auto-grant-permissions \
-            --yolo --json "$INSTRUCTIONS" 2>&1 | tee ../tc-ground.log
-          code=${PIPESTATUS[0]}
-          if [ "$code" -ne 0 ]; then
-            echo "::warning::Grounding exploration exited $code; continuing, selectors may be less grounded."
-          fi
-          exit 0
-
-      - name: Pick the first N not-yet-automated cases
-        id: pick
+      # The listing has no automation status, so the CLI is the source of truth: it refuses a case
+      # that is already automated. Candidates are tried in listed order (oldest id first).
+      - name: List candidate cases
+        id: list
         working-directory: suite
         run: |
           set -euo pipefail
           tc tm cases -p "$TM_PROJECT" -f "$TM_FOLDER_ID" --json > ../tm-cases.json
           echo "--- raw listing (first 3000 chars) ---"; head -c 3000 ../tm-cases.json; echo
-          IDS="$(node -e '
+          node -e '
             const fs = require("fs");
-            const n = parseInt(process.env.NUM_CASES, 10);
             let data = JSON.parse(fs.readFileSync("../tm-cases.json", "utf8"));
             if (!Array.isArray(data)) data = data.test_cases || data.cases || data.data || [];
-            const idOf = (c) => c.identifier || c.id || c.key || c.case_id;
-            const status = (c) => String(c.automation_status || c.automationStatus || c.automation || "").toLowerCase();
-            const notAutomated = (c) => !/^(automated|completed|done)$/.test(status(c));
-            const ids = data.filter(notAutomated).map(idOf).filter(Boolean).slice(0, n);
-            process.stdout.write(ids.join(" "));
-          ')"
-          if [ -z "$IDS" ]; then echo "No not-yet-automated cases found in $TM_PROJECT / $TM_FOLDER_ID"; exit 1; fi
-          echo "Selected: $IDS"
-          echo "ids=$IDS" >> "$GITHUB_OUTPUT"
+            const num = (c) => parseInt(String(c.identifier || c.id || "").replace(/\D/g, ""), 10) || 0;
+            data.sort((a, b) => num(a) - num(b));
+            const lines = data.map((c) => `${c.identifier || c.id}\t${c.name || c.title || ""}`);
+            fs.writeFileSync("../candidates.tsv", lines.join("\n") + "\n");
+          '
+          test -s ../candidates.tsv || { echo "No test cases in $TM_PROJECT / $TM_FOLDER_ID"; exit 1; }
+          echo "Candidates: $(wc -l < ../candidates.tsv)"
 
+      # Automate cases one at a time until NUM_CASES are written. A case that is already automated is
+      # skipped. The device exploration that grounds selectors runs once, on the first case that is
+      # actually being automated, and only for that case (not the whole feature context).
       - name: Write automation scripts
+        id: automate
         working-directory: suite
         env:
           BS_URL: ${{ steps.app.outputs.bs_url }}
-          IDS: ${{ steps.pick.outputs.ids }}
           BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
           BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
         run: |
           set -uo pipefail
-          # shellcheck disable=SC2086
-          tc automate $IDS --project "$TM_PROJECT" --app "$BS_URL" --platform android \
-            --yolo --json 2>&1 | tee ../tc-automate.log
-          exit "${PIPESTATUS[0]}"
+          DONE=""
+          COUNT=0
+          GROUNDED=0
+          while IFS=$'\t' read -r ID NAME; do
+            [ -z "$ID" ] && continue
+            [ "$COUNT" -ge "$NUM_CASES" ] && break
+
+            # Ground selectors on the device for the case about to be automated.
+            if [ "$GROUNDED" -eq 0 ]; then
+              echo "=== Grounding selectors for $ID: $NAME ==="
+              GROUND="Explore the app on the real device only to capture verified on-device elements needed to automate this test case: ${ID} - ${NAME}. Do not save, create or modify any test case."
+              tc app generate --app "$BS_URL" --platform android --auto-grant-permissions \
+                --yolo --json "$GROUND" 2>&1 | tee -a ../tc-ground.log
+              gcode=${PIPESTATUS[0]}
+              if [ "$gcode" -ne 0 ]; then
+                echo "Grounding exploration failed (exit $gcode); stopping so scripts are not written with ungrounded selectors."
+                exit "$gcode"
+              fi
+              GROUNDED=1
+            fi
+
+            echo "=== Automating $ID: $NAME ==="
+            tc automate "$ID" --project "$TM_PROJECT" --app "$BS_URL" --platform android \
+              --yolo --json 2>&1 | tee -a ../tc-automate.log
+            code=${PIPESTATUS[0]}
+            if [ "$code" -eq 0 ]; then
+              DONE="${DONE:+$DONE }$ID"
+              COUNT=$((COUNT + 1))
+            elif tail -n 40 ../tc-automate.log | grep -q "Already automated"; then
+              echo "Skipping $ID (already automated)"
+            else
+              echo "tc automate failed for $ID (exit $code)"
+              exit "$code"
+            fi
+          done < ../candidates.tsv
+
+          # Every case already automated is a successful outcome: nothing to do, no PR.
+          if [ "$COUNT" -eq 0 ]; then
+            echo "All cases in $TM_PROJECT / $TM_FOLDER_ID are already automated. Nothing to do."
+            echo "nothing_to_do=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$COUNT" -lt "$NUM_CASES" ]; then echo "::warning::Only $COUNT of $NUM_CASES requested cases could be automated (the rest are already automated)."; fi
+          echo "Automated: $DONE"
+          echo "ids=$DONE" >> "$GITHUB_OUTPUT"
+          echo "nothing_to_do=false" >> "$GITHUB_OUTPUT"
 
       - name: Raise PR in the test-suite repo
         id: pr
+        if: steps.automate.outputs.nothing_to_do != 'true'
         working-directory: suite
         env:
           GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
-          IDS: ${{ steps.pick.outputs.ids }}
+          IDS: ${{ steps.automate.outputs.ids }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -201,16 +224,23 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           JOB_STATUS: ${{ job.status }}
-          IDS: ${{ steps.pick.outputs.ids }}
+          NOTHING_TO_DO: ${{ steps.automate.outputs.nothing_to_do }}
+          IDS: ${{ steps.automate.outputs.ids }}
           PR_URL: ${{ steps.pr.outputs.pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then echo "SLACK_WEBHOOK_URL not set, skipping"; exit 0; fi
           if [ "$JOB_STATUS" = "success" ]; then ICON=":white_check_mark:"; else ICON=":x:"; fi
-          TEXT="${ICON} Test Companion script generation: ${JOB_STATUS}
+          if [ "$NOTHING_TO_DO" = "true" ]; then
+            TEXT="${ICON} Test Companion script generation: ${JOB_STATUS}
+          All cases in ${TM_PROJECT} / ${TM_FOLDER_ID} are already automated, nothing to generate.
+          Run: ${RUN_URL}"
+          else
+            TEXT="${ICON} Test Companion script generation: ${JOB_STATUS}
           Cases: ${IDS:-none selected} (${TM_PROJECT} / ${TM_FOLDER_ID})
           PR: ${PR_URL:-none}
           Run: ${RUN_URL}"
+          fi
           PAYLOAD="$(node -e 'console.log(JSON.stringify({text: process.argv[1]}))' "$TEXT")"
           curl -fsS -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
 
@@ -222,5 +252,6 @@ jobs:
             tc-ground.log
             tc-automate.log
             tm-cases.json
+            candidates.tsv
           if-no-files-found: ignore
           retention-days: 7
