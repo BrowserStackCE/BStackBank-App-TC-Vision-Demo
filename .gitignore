@@ -55,3 +55,7 @@ yash-demo-banking-app-firebase-adminsdk-fbsvc-a1594354a1.json
 GoogleService-Info.plist
 
 plan.md
+
+# Local Cloudflare/wrangler secrets (never commit)
+slack-relay/.dev.vars
+slack-relay/.env
